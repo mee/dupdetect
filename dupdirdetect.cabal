@@ -48,7 +48,7 @@ Executable dupdirdetect
   Main-is:             Main.hs
   
   -- Packages needed in order to build this package.
-  -- Build-depends:       
+  Build-depends:       base, filepath, unix, directory, containers, Crypto, bytestring
   
   -- Modules not exported by this package.
   -- Other-modules:       
