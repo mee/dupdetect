@@ -31,9 +31,16 @@ slightly different sizes.
 
 Hashing is very, very slow.
 
+Play with compiler options
+
 ## output
 
 Make it prettier, configurable, more machine-parseable
+
+## big directories
+
+Stack space might be exhausted when operating on large dirs. Play with
+-K runtime options.
 
 # author
 
