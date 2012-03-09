@@ -11,7 +11,7 @@ import System.Console.GetOpt
 import System.Directory
 import System.Environment
 import System.IO
-import System.Posix.Files (getFileStatus, isDirectory, fileSize)
+import System.Posix.Files (getFileStatus, isDirectory, fileSize, fileAccess, isRegularFile)
 import System.Posix.Types (FileOffset)
 import System.FilePath.Posix
            
@@ -28,15 +28,15 @@ data FSTree = File FileOffset [Octet]
             | Dir FSForest
   deriving (Show)
            
--- only compare by hash if they are the same size
 instance Eq FSTree where           
   (File sz1 hs1) == (File sz2 hs2) = and [ sz1 == sz2
                                          , hs1 == hs2 ]
   (Dir for1) == (Dir for2) = for1 == for2                                     
   _ == _ = False
 
+-- I wish I didn't need this
 instance Ord FSTree where  
-  (File sz1 hs1) `compare` (File sz2 hs2) = sz1 `compare` sz2
+  (File sz1 hs1) `compare` (File sz2 hs2) = (sz1,hs1) `compare` (sz2,hs2)
   (Dir hs1) `compare` (Dir hs2) = hs1 `compare` hs2
   (File _ _) `compare` (Dir _) = LT
   (Dir _) `compare` (File _ _) = GT
@@ -76,20 +76,24 @@ walkDir :: FilePath -> Bool -> Bool -> IO FSDupes
 walkDir fp oVerbose oSize = step M.empty fp
   where step dupes f = do
           cfp <- canonicalizePath f
-          isDir <- doesDirectoryExist cfp
-          if not isDir 
-            then do fh <- hashFile cfp
-                    fs <- getFileStatus cfp
-                    return $! M.singleton (File (fileSize fs) fh) [cfp]
-            else do when oVerbose (putStrLn $ "Entering " ++ cfp)
+          fs <- getFileStatus cfp
+          isR <- fileAccess cfp True False False
+          isRX <- fileAccess cfp True False True
+          if and [isDirectory fs, isRX]
+            then do when oVerbose (putStrLn $ "Entering " ++ cfp)
                     subs <- getDirectoryContents cfp >>= 
                             mapM (canonicalizePath . (cfp </>)) . filter (not . flip elem [".",".."])
                     subdupes <- mapM (step M.empty) subs
                     when oVerbose (putStrLn $ "Leaving " ++ cfp)
                     return $! M.unionsWith (++) (M.singleton (Dir (S.fromList (concatMap M.keys subdupes))) [cfp]
-                                                : dupes : subdupes)
-        hashFile s = if oSize 
-                     then return [] 
+                                                 : dupes : subdupes)
+            else if and [isRegularFile fs, isR]
+                   then do fh <- hashFile cfp (fileSize fs)
+                           return $! M.singleton (File (fileSize fs) fh) [cfp]
+                   else do when oVerbose (putStrLn $ "Skipping: " ++ cfp)
+                           return M.empty
+        hashFile s sz = if oSize 
+                     then return [read . show $ sz]
                      else withBinaryFile s ReadMode                     
                           (\hdl -> do when oVerbose (putStrLn $ "Hashing " ++ s)
                                       cnts <- LBS.hGetContents hdl
